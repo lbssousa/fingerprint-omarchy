@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "lbssousa.fingerprint",
+  "name": "Fingerprints",
+  "version": "0.1.0",
+  "author": "Laércio de Sousa",
+  "description": "Enroll, test and delete your fingerprints (fprintd), styled like the polkit agent.",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Fingerprint.qml"
+  }
+}

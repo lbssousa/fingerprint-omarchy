@@ -1,0 +1,521 @@
+#!/usr/bin/env python3
+"""Talks to fprintd on the system bus for the lbssousa.fingerprint plugin.
+
+Quickshell has no generic D-Bus in QML, and the fprintd-* tools neither tell
+how many scans an enrollment takes nor stop cleanly, so the plugin runs this
+helper while its overlay is open: one JSON command per line on stdin, one
+JSON event per line on stdout. Closing stdin (or SIGTERM) stops whatever runs
+and releases the reader; fprintd would release it anyway once we leave the
+bus. No root needed: in the active session fprintd lets users manage their
+own prints once polkit has their password (asked once, then kept a while).
+
+Commands:
+  {"cmd":"refresh"}
+  {"cmd":"enroll","finger":"right-index-finger"}
+  {"cmd":"verify"}
+  {"cmd":"delete","finger":"right-index-finger"}
+  {"cmd":"cancel"}
+
+Events:
+  {"type":"state","available":true,"device":{"name","scanType","stages"},"enrolled":[...]}
+  {"type":"state","available":false,"reason":"no-service"|"no-device"|...}
+  {"type":"enroll","finger","result","done","stage","total"}
+  {"type":"verify","result","done","finger"}
+  {"type":"deleted","finger"}
+  {"type":"cancelled","op"}
+  {"type":"error","op","code"}
+
+"result" is fprintd's EnrollStatus/VerifyStatus string, plus "enroll-started",
+"verify-started" and "verify-timeout" from the helper itself.
+"""
+
+import json
+import os
+import signal
+import sys
+
+BUS_NAME = "net.reactivated.Fprint"
+MANAGER_PATH = "/net/reactivated/Fprint/Manager"
+MANAGER_IFACE = "net.reactivated.Fprint.Manager"
+DEVICE_IFACE = "net.reactivated.Fprint.Device"
+PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
+
+# Enrolling and deleting need the user's password (fprintd's polkit default is
+# auth_self_keep), so calls given this timeout let polkit ask through the
+# shell's agent; D-Bus's default 25 s is too short to type it.
+INTERACTIVE_TIMEOUT_MS = 120_000
+CALL_TIMEOUT_MS = 25_000
+VERIFY_TIMEOUT_S = 30
+# Long enough for the stop and release replies on the way out.
+SHUTDOWN_GRACE_S = 2
+# fprintd can restart under a running scan: Omarchy restarts it after resume,
+# and on Goodix 53XD readers a watchdog restarts it when the goodix538d driver
+# loses sync with the sensor, which it does on the first scan after a
+# cancelled one. The claim dies with fprintd, so the scan is claimed and
+# started again, a few times, once the new fprintd had a moment to come up.
+MAX_RESTARTS = 2
+RESTART_DELAY_S = 1
+# What calls get when the fprintd they were made to went away.
+SERVICE_LOST_ERRORS = {
+    "org.freedesktop.DBus.Error.NoReply",
+    "org.freedesktop.DBus.Error.ServiceUnknown",
+    "org.freedesktop.DBus.Error.NameHasNoOwner",
+    "net.reactivated.Fprint.Error.ClaimDevice",
+}
+
+# The fingers the plugin offers, left hand first (thumb, index, middle).
+FINGERS = (
+    "left-thumb",
+    "left-index-finger",
+    "left-middle-finger",
+    "right-thumb",
+    "right-index-finger",
+    "right-middle-finger",
+)
+
+ERROR_CODES = {
+    "net.reactivated.Fprint.Error.PermissionDenied": "permission-denied",
+    "net.reactivated.Fprint.Error.AlreadyInUse": "in-use",
+    "net.reactivated.Fprint.Error.NoEnrolledPrints": "no-prints",
+    "net.reactivated.Fprint.Error.PrintsNotDeleted": "not-deleted",
+    "net.reactivated.Fprint.Error.NoSuchDevice": "no-device",
+    "org.freedesktop.DBus.Error.ServiceUnknown": "no-service",
+    "org.freedesktop.DBus.Error.NameHasNoOwner": "no-service",
+}
+
+
+def error_code(name):
+    return ERROR_CODES.get(name or "", "generic")
+
+
+def log(*parts):
+    print("fprint-helper:", *parts, file=sys.stderr, flush=True)
+
+
+class Session:
+    """The protocol over an abstract bus, so tests can drive it with a fake one.
+
+    bus.call(path, iface, method, signature, args, timeout_ms, callback) calls
+    back callback(error_name_or_None, result_tuple); bus.subscribe(path,
+    handler) calls handler(signal_name, args) for the device's signals.
+    timers.add(seconds, fn) / timers.remove(handle) schedule one-shot calls.
+    """
+
+    def __init__(self, bus, emit, timers):
+        self.bus = bus
+        self.emit = emit
+        self.timers = timers
+        self.path = ""
+        self.subscribed_path = ""
+        self.device = None
+        self.enrolled = []
+        self.op = None
+        # Bumped by every operation; a reply for an older one is dropped.
+        self.generation = 0
+        self.claimed = False
+        self.finger = ""
+        self.stage = 0
+        self.matched = ""
+        self.verify_timer = None
+        self.restart_timer = None
+        self.restarts = 0
+        self.closed = False
+
+    # -- commands --------------------------------------------------------
+
+    def handle_line(self, line):
+        line = line.strip()
+        if not line:
+            return
+        try:
+            command = json.loads(line)
+        except ValueError:
+            log("ignoring invalid JSON")
+            return
+        if not isinstance(command, dict):
+            return
+        name = command.get("cmd")
+        finger = command.get("finger")
+        if name in ("enroll", "verify"):
+            self.restarts = 0
+        if name == "refresh":
+            self.refresh()
+        elif name == "enroll":
+            self.start_enroll(finger)
+        elif name == "verify":
+            self.start_verify()
+        elif name == "delete":
+            self.delete(finger)
+        elif name == "cancel":
+            self.cancel()
+
+    def refresh(self):
+        if self.op is not None:
+            return
+        generation = self.generation
+
+        def got_device(error, result):
+            if generation != self.generation:
+                return
+            if error:
+                self.path = ""
+                self.device = None
+                self.enrolled = []
+                self.emit({"type": "state", "available": False, "reason": error_code(error)})
+                return
+            self.path = result[0]
+            self.watch_device()
+            self.bus.call(self.path, PROPERTIES_IFACE, "GetAll", "(s)", (DEVICE_IFACE,),
+                          CALL_TIMEOUT_MS, got_properties)
+
+        def got_properties(error, result):
+            if generation != self.generation:
+                return
+            props = result[0] if not error and result else {}
+            self.device = {
+                "name": str(props.get("name", "")),
+                "scanType": str(props.get("scan-type", "press")),
+                "stages": int(props.get("num-enroll-stages", -1)),
+            }
+            self.load_enrolled()
+
+        self.bus.call(MANAGER_PATH, MANAGER_IFACE, "GetDefaultDevice", None, None,
+                      CALL_TIMEOUT_MS, got_device)
+
+    def load_enrolled(self):
+        generation = self.generation
+
+        def got_fingers(error, result):
+            if generation != self.generation:
+                return
+            # NoEnrolledPrints is the normal "nothing enrolled yet" answer.
+            if error and error_code(error) != "no-prints":
+                log("could not list enrolled fingers:", error)
+            self.enrolled = list(result[0]) if not error and result else []
+            self.emit_state()
+
+        # Empty user name: fprintd uses the caller's user.
+        self.bus.call(self.path, DEVICE_IFACE, "ListEnrolledFingers", "(s)", ("",),
+                      CALL_TIMEOUT_MS, got_fingers)
+
+    def emit_state(self):
+        self.emit({"type": "state", "available": True, "device": self.device or {},
+                   "enrolled": self.enrolled})
+
+    def start_enroll(self, finger):
+        if finger not in FINGERS or not self.begin("enroll"):
+            return
+        self.finger = finger
+        self.stage = 0
+        generation = self.generation
+
+        def started(error, _result):
+            if generation != self.generation:
+                return
+            if error:
+                self.fail(error)
+                return
+            self.emit_enroll("enroll-started", False)
+
+        self.claim_then(lambda: self.bus.call(self.path, DEVICE_IFACE, "EnrollStart", "(s)", (finger,),
+                                              INTERACTIVE_TIMEOUT_MS, started))
+
+    def start_verify(self):
+        if not self.begin("verify"):
+            return
+        self.matched = ""
+        generation = self.generation
+
+        def started(error, _result):
+            if generation != self.generation:
+                return
+            if error:
+                self.fail(error)
+                return
+            self.verify_timer = self.timers.add(VERIFY_TIMEOUT_S, self.verify_timed_out)
+            self.emit({"type": "verify", "result": "verify-started", "done": False, "finger": ""})
+
+        self.claim_then(lambda: self.bus.call(self.path, DEVICE_IFACE, "VerifyStart", "(s)", ("any",),
+                                              INTERACTIVE_TIMEOUT_MS, started))
+
+    def delete(self, finger):
+        if finger not in FINGERS or not self.begin("delete"):
+            return
+        generation = self.generation
+
+        def deleted(error, _result):
+            if generation != self.generation:
+                return
+            if error:
+                self.fail(error)
+                return
+            self.emit({"type": "deleted", "finger": finger})
+            self.finish(None)
+
+        # DeleteEnrolledFinger needs the reader claimed.
+        self.claim_then(lambda: self.bus.call(self.path, DEVICE_IFACE, "DeleteEnrolledFinger", "(s)", (finger,),
+                                              INTERACTIVE_TIMEOUT_MS, deleted))
+
+    def cancel(self):
+        op = self.op
+        if op is None:
+            return
+        self.finish(op)
+        self.emit({"type": "cancelled", "op": op})
+
+    def service_lost(self):
+        """fprintd left the bus; called by the bus's name watch."""
+        self.claimed = False
+        if self.op in ("enroll", "verify") and self.restart_timer is None:
+            self.restart()
+
+    def shutdown(self):
+        self.closed = True
+        if self.op is not None:
+            self.finish(self.op)
+
+    # -- operation plumbing ---------------------------------------------
+
+    def begin(self, op):
+        if self.op is not None or self.closed:
+            return False
+        if not self.path:
+            self.emit({"type": "error", "op": op, "code": "no-device"})
+            return False
+        self.op = op
+        self.generation += 1
+        return True
+
+    def claim_then(self, next_step):
+        if self.claimed:
+            next_step()
+            return
+        generation = self.generation
+
+        def claimed(error, _result):
+            if error:
+                if generation == self.generation:
+                    self.fail(error)
+                return
+            self.claimed = True
+            if generation != self.generation:
+                # Cancelled while the claim (or its polkit prompt) was pending.
+                if self.op is None:
+                    self.release()
+                return
+            next_step()
+
+        self.bus.call(self.path, DEVICE_IFACE, "Claim", "(s)", ("",), INTERACTIVE_TIMEOUT_MS, claimed)
+
+    def restart(self):
+        """Starts the running scan over once fprintd is back; False when out of tries."""
+        if self.restarts >= MAX_RESTARTS:
+            return False
+        self.restarts += 1
+        op = self.op
+        log("fprintd went away during %s; starting over" % op)
+        self.claimed = False
+        self.generation += 1
+        self.remove_timers()
+        generation = self.generation
+
+        def again():
+            self.restart_timer = None
+            if generation != self.generation:
+                return
+            self.op = None
+            if op == "enroll":
+                self.start_enroll(self.finger)
+            else:
+                self.start_verify()
+
+        self.restart_timer = self.timers.add(RESTART_DELAY_S, again)
+        return True
+
+    def fail(self, error):
+        op = self.op
+        if error in SERVICE_LOST_ERRORS and op in ("enroll", "verify"):
+            self.claimed = False
+            if self.restart_timer is not None or self.restart():
+                return
+        log("%s failed: %s" % (op, error))
+        self.finish(op)
+        self.emit({"type": "error", "op": op, "code": error_code(error)})
+
+    def finish(self, stop_op):
+        """Ends the running operation: stops a scan still going, then releases."""
+        self.generation += 1
+        self.op = None
+        self.remove_timers()
+        if self.claimed and stop_op in ("enroll", "verify"):
+            method = "EnrollStop" if stop_op == "enroll" else "VerifyStop"
+            # Stopping a scan that already ended errors out; release regardless.
+            self.bus.call(self.path, DEVICE_IFACE, method, None, None, CALL_TIMEOUT_MS,
+                          lambda _e, _r: self.release())
+        else:
+            self.release()
+
+    def remove_timers(self):
+        for name in ("verify_timer", "restart_timer"):
+            handle = getattr(self, name)
+            if handle is not None:
+                self.timers.remove(handle)
+                setattr(self, name, None)
+
+    def release(self):
+        if not self.claimed:
+            if self.op is None and not self.closed:
+                self.after_release()
+            return
+        self.claimed = False
+
+        def released(error, _result):
+            if error:
+                log("could not release the reader:", error)
+            if self.op is None and not self.closed:
+                self.after_release()
+
+        self.bus.call(self.path, DEVICE_IFACE, "Release", None, None, CALL_TIMEOUT_MS, released)
+
+    def after_release(self):
+        # Enrolling and deleting change the list; re-read it once the reader is free.
+        if self.path:
+            self.load_enrolled()
+
+    # -- device signals --------------------------------------------------
+
+    def watch_device(self):
+        if self.subscribed_path == self.path:
+            return
+        self.subscribed_path = self.path
+        self.bus.subscribe(self.path, self.on_signal)
+
+    def on_signal(self, name, args):
+        if name == "EnrollStatus" and self.op == "enroll":
+            result, done = args
+            if result == "enroll-stage-passed":
+                self.stage += 1
+            self.emit_enroll(result, bool(done))
+            if done:
+                self.finish("enroll")
+        elif name == "VerifyFingerSelected" and self.op == "verify":
+            self.matched = args[0]
+        elif name == "VerifyStatus" and self.op == "verify":
+            result, done = args
+            finger = self.matched if result == "verify-match" else ""
+            self.emit({"type": "verify", "result": result, "done": bool(done), "finger": finger})
+            if done:
+                self.finish("verify")
+
+    def emit_enroll(self, result, done):
+        total = self.device.get("stages", -1) if self.device else -1
+        self.emit({"type": "enroll", "finger": self.finger, "result": result, "done": done,
+                   "stage": self.stage, "total": total})
+
+    def verify_timed_out(self):
+        self.verify_timer = None
+        if self.op != "verify":
+            return
+        self.emit({"type": "verify", "result": "verify-timeout", "done": True, "finger": ""})
+        self.finish("verify")
+
+
+class GioBus:
+    def __init__(self):
+        from gi.repository import Gio, GLib
+        self.Gio = Gio
+        self.GLib = GLib
+        self.conn = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+
+    def call(self, path, iface, method, signature, args, timeout_ms, callback):
+        Gio, GLib = self.Gio, self.GLib
+        params = GLib.Variant(signature, args) if signature else None
+        flags = Gio.DBusCallFlags.NONE
+        if timeout_ms >= INTERACTIVE_TIMEOUT_MS:
+            flags = Gio.DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION
+
+        def done(conn, res):
+            try:
+                reply = conn.call_finish(res)
+            except GLib.Error as e:
+                callback(Gio.DBusError.get_remote_error(e) or e.message, None)
+                return
+            callback(None, reply.unpack() if reply is not None else ())
+
+        self.conn.call(BUS_NAME, path, iface, method, params, None, flags, timeout_ms, None, done)
+
+    def watch_service(self, on_vanished):
+        self.watch = self.Gio.bus_watch_name_on_connection(
+            self.conn, BUS_NAME, self.Gio.BusNameWatcherFlags.NONE,
+            None, lambda _c, _n: on_vanished())
+
+    def subscribe(self, path, handler):
+        self.conn.signal_subscribe(
+            BUS_NAME, DEVICE_IFACE, None, path, None, self.Gio.DBusSignalFlags.NONE,
+            lambda _c, _s, _p, _i, name, params: handler(name, params.unpack()))
+
+
+class GLibTimers:
+    def __init__(self, GLib):
+        self.GLib = GLib
+
+    def add(self, seconds, fn):
+        def fire():
+            fn()
+            return False
+        return self.GLib.timeout_add_seconds(seconds, fire)
+
+    def remove(self, handle):
+        self.GLib.source_remove(handle)
+
+
+def main():
+    from gi.repository import GLib
+
+    loop = GLib.MainLoop()
+
+    def emit(event):
+        try:
+            print(json.dumps(event), flush=True)
+        except BrokenPipeError:
+            loop.quit()
+
+    bus = GioBus()
+    session = Session(bus, emit, GLibTimers(GLib))
+    bus.watch_service(session.service_lost)
+
+    def quit_soon():
+        if session.closed:
+            return
+        session.shutdown()
+        GLib.timeout_add_seconds(SHUTDOWN_GRACE_S, lambda: loop.quit() or False)
+
+    buffer = b""
+
+    def on_stdin(fd, condition):
+        nonlocal buffer
+        chunk = os.read(fd, 4096) if condition & GLib.IO_IN else b""
+        if not chunk:
+            quit_soon()
+            return False
+        buffer += chunk
+        while b"\n" in buffer:
+            line, buffer = buffer.split(b"\n", 1)
+            session.handle_line(line.decode("utf-8", "replace"))
+        return True
+
+    GLib.io_add_watch(sys.stdin.fileno(), GLib.PRIORITY_DEFAULT, GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, on_stdin)
+    try:
+        from gi.repository import GLibUnix
+        signal_add = GLibUnix.signal_add
+    except ImportError:
+        signal_add = GLib.unix_signal_add
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        signal_add(GLib.PRIORITY_DEFAULT, signum, lambda: quit_soon() or True)
+
+    session.refresh()
+    loop.run()
+
+
+if __name__ == "__main__":
+    main()

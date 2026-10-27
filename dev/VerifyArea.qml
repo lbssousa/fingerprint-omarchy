@@ -1,0 +1,1 @@
+../plugin/VerifyArea.qml

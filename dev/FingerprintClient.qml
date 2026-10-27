@@ -1,0 +1,1 @@
+../plugin/FingerprintClient.qml

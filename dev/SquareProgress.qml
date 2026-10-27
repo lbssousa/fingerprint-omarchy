@@ -1,0 +1,1 @@
+../plugin/SquareProgress.qml

@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# omarchy:summary=Enroll, test and delete your fingerprints
+#
+# Opens the lbssousa.fingerprint overlay in the running omarchy-shell. Falls
+# back to the terminal enrollment when the shell or the plugin isn't there.
+
+set -euo pipefail
+
+if [[ $(omarchy-shell shell summon lbssousa.fingerprint '{}' 2>/dev/null) == ok ]]; then
+  exit 0
+fi
+
+echo "The fingerprint plugin isn't enabled in the shell; enable it with:" >&2
+echo "  omarchy-shell shell enablePlugin lbssousa.fingerprint '{}'" >&2
+fallback=omarchy-setup-security-fingerprint
+command -v omarchy-mu-setup-security-fingerprint >/dev/null && fallback=omarchy-mu-setup-security-fingerprint
+exec omarchy-launch-floating-terminal-with-presentation "$fallback"
