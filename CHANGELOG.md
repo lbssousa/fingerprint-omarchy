@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 (2026-10-27)
+
+- Install notes, README, `just link` and the hint `omarchy-fingerprint` prints
+  when the plugin is off now run `omarchy-shell shell rescanPlugins` before
+  `enablePlugin`: a running shell doesn't see a newly linked plugin until it
+  rescans, and `enablePlugin` answers `unknown` until then.
+
 ## 0.1.0 (2026-10-27)
 
 - First release: the `lbssousa.fingerprint` overlay (six finger tiles, test
