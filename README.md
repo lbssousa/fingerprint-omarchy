@@ -7,6 +7,8 @@ GNOME Settings and on the Security page of
 [lbssousa/noctalia](https://github.com/lbssousa/noctalia/tree/feat/security-hardware),
 and themed like the shell's polkit agent.
 
+![The overlay: the six finger tiles, two of them enrolled, and the test area](preview.png)
+
 - **Six fingers**: thumb, index and middle finger of each hand, as tiles that
   show which are enrolled. Left hand in the first column, right hand in the
   second (mirrored in right-to-left languages).
@@ -37,7 +39,7 @@ While it's open it runs `fprint-helper`, a small Python program that talks to
 fprintd on the system bus (Quickshell has no D-Bus of its own in QML, and the
 `fprintd-*` tools neither say how many scans an enrollment takes nor stop
 cleanly). They speak one JSON object per line over the helper's stdin and
-stdout; the protocol is described at the top of `plugin/fprint-helper`.
+stdout; the protocol is described at the top of `fprint-helper`.
 Closing the overlay stops the helper, which stops any scan and releases the
 reader. If fprintd restarts under a scan (Omarchy restarts it after resume,
 and Goodix 53XD setups run a watchdog that restarts it when the goodix538d
@@ -55,43 +57,79 @@ with [omarchy-multiuser](https://github.com/lbssousa/omarchy-multiuser)), and
 the overlay says so while it isn't. With omarchy-multiuser, the lock screen
 picks up new prints by itself.
 
+## Requirements
+
+- Omarchy 4.5 (the Quattro shell).
+- fprintd and a reader it supports. *Setup › Security › Fingerprint* installs
+  fprintd; so does `sudo pacman -S fprintd`.
+- `python` and `python-gobject`, both part of every Omarchy install.
+
 ## Install
 
 ```sh
-cd packaging && makepkg -si
+omarchy plugin add https://github.com/lbssousa/fingerprint-omarchy.git --enable
 ```
 
-Then, per user:
+Open it with:
 
 ```sh
+omarchy-shell shell summon lbssousa.fingerprint '{}'
+```
+
+To have *Setup › Security › Fingerprint* open it instead of the terminal
+script, add to `~/.config/omarchy/extensions/omarchy-menu.jsonc`:
+
+```jsonc
+"setup.security.fingerprint": {"action":"omarchy-shell shell summon lbssousa.fingerprint '{}'"},
+```
+
+[omarchy-multiuser](https://github.com/lbssousa/omarchy-multiuser)'s menu
+block does that already.
+
+Update with `omarchy plugin update lbssousa.fingerprint`.
+
+### As an Arch package
+
+`packaging/` builds `fingerprint-omarchy`, which installs the plugin to
+`/usr/share/fingerprint-omarchy/plugin` and an `omarchy-fingerprint` command
+that opens it (or the terminal script, when the plugin is off):
+
+```sh
+cd packaging && makepkg -si
 ln -sfn /usr/share/fingerprint-omarchy/plugin ~/.config/omarchy/plugins/lbssousa.fingerprint
 omarchy-shell shell rescanPlugins
 omarchy-shell shell enablePlugin lbssousa.fingerprint '{}'
-omarchy-fingerprint
 ```
 
 The running shell only looks for plugins when it starts or is asked to
 rescan; until then `enablePlugin` answers `unknown`.
 
-omarchy-multiuser's menu block already sends *Setup › Security › Fingerprint*
-here when `omarchy-fingerprint` is installed. Without it, add to
-`~/.config/omarchy/extensions/omarchy-menu.jsonc`:
+## Remove
 
-```jsonc
-"setup.security.fingerprint": {"action":"omarchy-fingerprint"},
+```sh
+omarchy plugin remove lbssousa.fingerprint
 ```
+
+(`sudo pacman -R fingerprint-omarchy` and
+`rm ~/.config/omarchy/plugins/lbssousa.fingerprint` for the package.) Drop the
+`setup.security.fingerprint` line if you added it to the menu. Removing the
+plugin leaves your prints in fprintd and the PAM setup as they are: delete
+prints in the overlay first, or later with `fprintd-delete $USER`.
 
 ## Development
 
 ```sh
-just test      # node tests (model, catalogs), python tests (helper), lint
+just test      # node tests (model, catalogs), python tests (helper), lint, validation
 just dev       # the overlay in its own Quickshell instance, on the real reader
 just dev ar    # ... in Arabic (right to left)
 just link      # this checkout's plugin in the real shell
 just pkg       # the Arch package
 ```
 
-`dev/` links the shell's `Commons` and `Ui` from `/usr/share/omarchy/shell`.
+`just dev` runs `dev/shell.qml` from a temporary folder that links the
+plugin's files and the shell's `Commons` and `Ui` from
+`/usr/share/omarchy/shell`; the checkout itself carries no symlinks, which
+`omarchy plugin add` refuses.
 
 ## License
 

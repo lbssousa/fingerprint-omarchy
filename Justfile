@@ -5,8 +5,9 @@ plugin_link := env("HOME") / ".config/omarchy/plugins/lbssousa.fingerprint"
 default:
     @just --list
 
-# Every test: the overlay's JS model and catalogs, the D-Bus helper, QML lint.
-test: test-js test-py lint
+# Every test: the overlay's JS model and catalogs, the D-Bus helper, QML lint,
+# and the shell's own plugin validation.
+test: test-js test-py lint validate
 
 test-js:
     node --test tests/js/
@@ -21,23 +22,35 @@ lint:
     #!/usr/bin/env bash
     set -uo pipefail
     if command -v shellcheck >/dev/null; then shellcheck bin/*; fi
-    /usr/lib/qt6/bin/qmllint -I /usr/lib/qt6/qml plugin/*.qml || true
+    /usr/lib/qt6/bin/qmllint -I /usr/lib/qt6/qml *.qml || true
 
-# Run the overlay in a separate Quickshell instance (dev/), against the real
-# reader; Escape ends it. `just dev ar` shows it in another language than the shell's.
+# What `omarchy plugin add` and the plugin marketplace check: the manifest,
+# its entry points, and no symlinks anywhere in the checkout.
+validate:
+    omarchy-plugin-validate .
+
+# Run the overlay in a separate Quickshell instance, against the real reader;
+# Escape ends it. `just dev ar` shows it in another language than the shell's.
+# The instance's folder is built in a temporary directory: it links the
+# shell's Commons and Ui next to the plugin's files, and plugins may not
+# carry symlinks.
 dev language="":
     #!/usr/bin/env bash
     set -eu
+    dir=$(mktemp -d)
+    trap 'rm -rf "$dir"' EXIT
+    for f in *.qml *.js fprint-helper i18n; do ln -s "$PWD/$f" "$dir/$f"; done
+    ln -s /usr/share/omarchy/shell/Commons /usr/share/omarchy/shell/Ui "$dir/"
+    cp dev/shell.qml "$dir/shell.qml"
     if [ -n "{{language}}" ]; then
-      export OMARCHY_LANGUAGE_FILE=$(mktemp)
-      trap 'rm -f "$OMARCHY_LANGUAGE_FILE"' EXIT
+      export OMARCHY_LANGUAGE_FILE="$dir/language"
       echo "{{language}}" > "$OMARCHY_LANGUAGE_FILE"
     fi
-    quickshell -p dev
+    quickshell -p "$dir"
 
 # Load this checkout's plugin in the real shell, then open it.
 link:
-    ln -sfn "$PWD/plugin" {{plugin_link}}
+    ln -sfn "$PWD" {{plugin_link}}
     omarchy-shell shell rescanPlugins
     omarchy-shell shell enablePlugin lbssousa.fingerprint '{}'
     omarchy-restart-shell

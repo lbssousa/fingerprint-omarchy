@@ -4,7 +4,7 @@ import json
 import pathlib
 import unittest
 
-HELPER = pathlib.Path(__file__).resolve().parents[2] / "plugin" / "fprint-helper"
+HELPER = pathlib.Path(__file__).resolve().parents[2] / "fprint-helper"
 loader = importlib.machinery.SourceFileLoader("fprint_helper", str(HELPER))
 spec = importlib.util.spec_from_loader("fprint_helper", loader)
 helper = importlib.util.module_from_spec(spec)

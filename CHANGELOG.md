@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 (2026-10-27)
+
+- The plugin lives at the repository root, so `omarchy plugin add
+  https://github.com/lbssousa/fingerprint-omarchy.git` installs it and it can
+  be listed in the Omarchy plugin marketplace. `dev/` no longer carries
+  symlinks: `just dev` builds its folder in a temporary directory.
+- `manifest.json` gains license, homepage, repository and keywords; a
+  `preview.png`; README sections on requirements, install, update and removal.
+- `just validate` (part of `just test`) runs `omarchy plugin validate`.
+
 ## 0.1.1 (2026-10-27)
 
 - Install notes, README, `just link` and the hint `omarchy-fingerprint` prints

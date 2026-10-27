@@ -1,1 +1,0 @@
-../plugin/FingerprintModel.js

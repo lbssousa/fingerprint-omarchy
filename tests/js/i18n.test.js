@@ -3,7 +3,7 @@ const assert = require("node:assert/strict")
 const fs = require("node:fs")
 const path = require("node:path")
 
-const dir = path.join(__dirname, "../../plugin/i18n")
+const dir = path.join(__dirname, "../../i18n")
 const load = file => JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"))
 const english = load("en.json")
 const holes = text => (String(text).match(/%\d/g) || []).sort().join(",")

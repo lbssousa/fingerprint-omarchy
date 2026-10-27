@@ -1,6 +1,6 @@
 const test = require("node:test")
 const assert = require("node:assert/strict")
-const Model = require("../../plugin/FingerprintModel.js")
+const Model = require("../../FingerprintModel.js")
 
 test("six fingers, left hand first, thumb to middle", () => {
   assert.deepEqual(Model.FINGERS.map(f => f.id), [

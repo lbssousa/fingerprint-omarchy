@@ -4,7 +4,7 @@
 # $startdir), so `makepkg` in packaging/ packages the working tree as is.
 
 pkgname=fingerprint-omarchy
-pkgver=0.1.1
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='Enroll, test and delete fingerprints from an omarchy-shell overlay (fprintd)'
 arch=(any)
@@ -25,9 +25,9 @@ check() {
 package() {
   _srcroot
   local share="$pkgdir/usr/share/fingerprint-omarchy/plugin"
-  install -Dm644 -t "$share" plugin/manifest.json plugin/*.qml plugin/*.js
-  install -Dm755 -t "$share" plugin/fprint-helper
-  install -Dm644 -t "$share/i18n" plugin/i18n/*.json
+  install -Dm644 -t "$share" manifest.json *.qml *.js
+  install -Dm755 -t "$share" fprint-helper
+  install -Dm644 -t "$share/i18n" i18n/*.json
   install -Dm755 -t "$pkgdir/usr/bin" bin/omarchy-fingerprint
 
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
