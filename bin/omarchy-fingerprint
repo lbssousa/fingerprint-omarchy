@@ -12,6 +12,7 @@ if [[ $(omarchy-shell shell summon lbssousa.fingerprint '{}' 2>/dev/null) == ok 
 fi
 
 echo "The fingerprint plugin isn't enabled in the shell; enable it with:" >&2
+echo "  omarchy-shell shell rescanPlugins" >&2
 echo "  omarchy-shell shell enablePlugin lbssousa.fingerprint '{}'" >&2
 fallback=omarchy-setup-security-fingerprint
 command -v omarchy-mu-setup-security-fingerprint >/dev/null && fallback=omarchy-mu-setup-security-fingerprint

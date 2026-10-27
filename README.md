@@ -65,9 +65,13 @@ Then, per user:
 
 ```sh
 ln -sfn /usr/share/fingerprint-omarchy/plugin ~/.config/omarchy/plugins/lbssousa.fingerprint
+omarchy-shell shell rescanPlugins
 omarchy-shell shell enablePlugin lbssousa.fingerprint '{}'
 omarchy-fingerprint
 ```
+
+The running shell only looks for plugins when it starts or is asked to
+rescan; until then `enablePlugin` answers `unknown`.
 
 omarchy-multiuser's menu block already sends *Setup › Security › Fingerprint*
 here when `omarchy-fingerprint` is installed. Without it, add to

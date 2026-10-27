@@ -38,6 +38,7 @@ dev language="":
 # Load this checkout's plugin in the real shell, then open it.
 link:
     ln -sfn "$PWD/plugin" {{plugin_link}}
+    omarchy-shell shell rescanPlugins
     omarchy-shell shell enablePlugin lbssousa.fingerprint '{}'
     omarchy-restart-shell
 

@@ -2,7 +2,10 @@ post_install() {
   cat <<'EOT'
 ==> Enable the overlay in the shell, per user:
       ln -sfn /usr/share/fingerprint-omarchy/plugin ~/.config/omarchy/plugins/lbssousa.fingerprint
+      omarchy-shell shell rescanPlugins
       omarchy-shell shell enablePlugin lbssousa.fingerprint '{}'
+    (the rescan lets a running shell see the new plugin; enablePlugin
+    answers "unknown" without it)
     then open it with omarchy-fingerprint.
 ==> With omarchy-multiuser, Setup > Security > Fingerprint opens it already.
     Without it, point the menu at it in ~/.config/omarchy/extensions/omarchy-menu.jsonc:
