@@ -52,10 +52,7 @@ the answer for a few minutes. Nothing needs root.
 
 The overlay doesn't set PAM up: for sudo, polkit and the lock screen to ask
 for a fingerprint, an administrator still runs
-`omarchy-setup-security-fingerprint` (or `omarchy-mu-setup-security-fingerprint`
-with [omarchy-multiuser](https://github.com/lbssousa/omarchy-multiuser)), and
-the overlay says so while it isn't. With omarchy-multiuser, the lock screen
-picks up new prints by itself.
+`omarchy-setup-security-fingerprint`, and the overlay says so while it isn't.
 
 ## Requirements
 
@@ -82,9 +79,6 @@ script, add to `~/.config/omarchy/extensions/omarchy-menu.jsonc`:
 ```jsonc
 "setup.security.fingerprint": {"action":"omarchy-shell shell summon lbssousa.fingerprint '{}'"},
 ```
-
-[omarchy-multiuser](https://github.com/lbssousa/omarchy-multiuser)'s menu
-block does that already.
 
 Update with `omarchy plugin update lbssousa.fingerprint`.
 
