@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "lbssousa.fingerprint",
   "name": "Fingerprints",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "Laércio de Sousa",
   "license": "MIT",
   "description": "Enroll, test and delete your fingerprints (fprintd) from a keyboard-friendly overlay styled like the polkit agent.",

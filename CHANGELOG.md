@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-12)
 
 - The test names the recognized finger with several fingers enrolled, on an
   fprintd that emits `VerifyMatchedFinger` right before `verify-match`. Stock
