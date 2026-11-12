@@ -177,6 +177,21 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(self.bus.methods()[-3:], ["VerifyStop", "Release", "ListEnrolledFingers"])
         self.assertEqual(self.timers.pending, {})
 
+    def test_verify_match_reports_the_identified_finger(self):
+        self.refreshed()
+        self.send(cmd="verify")
+        self.bus.handler("VerifyFingerSelected", ("any",))
+        self.bus.handler("VerifyMatchedFinger", ("left-thumb",))
+        self.bus.handler("VerifyStatus", ("verify-match", True))
+        self.assertEqual(self.of_type("verify")[-1]["finger"], "left-thumb")
+
+    def test_verify_match_without_matched_finger_stays_any(self):
+        self.refreshed()
+        self.send(cmd="verify")
+        self.bus.handler("VerifyFingerSelected", ("any",))
+        self.bus.handler("VerifyStatus", ("verify-match", True))
+        self.assertEqual(self.of_type("verify")[-1]["finger"], "any")
+
     def test_verify_retry_keeps_scanning(self):
         self.refreshed()
         self.send(cmd="verify")
