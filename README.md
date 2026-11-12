@@ -17,7 +17,11 @@ and themed like the shell's polkit agent.
   reader's feedback (lift and touch again, centre your finger, …). Readers
   that don't report a scan count get a spinning frame.
 - **Test area**: touch the reader with any enrolled finger; the card says
-  which one it recognized and marks its tile.
+  which one it recognized and marks its tile. With a single finger enrolled
+  any fprintd tells which one; with several, on a reader that identifies
+  (matches against all prints at once), stock fprintd only says a print
+  matched, and naming the finger needs an fprintd that emits
+  `VerifyMatchedFinger` (see *Requirements*).
 - **All from the keyboard**:
 
   | Key | Does |
@@ -58,7 +62,11 @@ for a fingerprint, an administrator still runs
 
 - Omarchy 4.5 (the Quattro shell).
 - fprintd and a reader it supports. *Setup › Security › Fingerprint* installs
-  fprintd; so does `sudo pacman -S fprintd`.
+  fprintd; so does `sudo pacman -S fprintd`. Optional: an fprintd patched to
+  emit the `VerifyMatchedFinger` signal, so the test names the finger that
+  matched when several are enrolled: the `verify-matched-finger` branch of
+  [lbssousa/fprintd](https://github.com/lbssousa/fprintd/tree/verify-matched-finger),
+  whose `packaging/PKGBUILD` replaces Arch's fprintd (`makepkg -si`).
 - `python` and `python-gobject`, both part of every Omarchy install.
 
 ## Install

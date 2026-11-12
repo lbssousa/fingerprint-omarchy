@@ -20,7 +20,8 @@ Events:
   {"type":"state","available":true,"device":{"name","scanType","stages"},"enrolled":[...]}
   {"type":"state","available":false,"reason":"no-service"|"no-device"|...}
   {"type":"enroll","finger","result","done","stage","total"}
-  {"type":"verify","result","done","finger"}
+  {"type":"verify","result","done","finger"}   (finger: from VerifyMatchedFinger,
+      else VerifyFingerSelected, which may be "any")
   {"type":"deleted","finger"}
   {"type":"cancelled","op"}
   {"type":"error","op","code"}
@@ -398,7 +399,11 @@ class Session:
             self.emit_enroll(result, bool(done))
             if done:
                 self.finish("enroll")
-        elif name == "VerifyFingerSelected" and self.op == "verify":
+        elif name in ("VerifyFingerSelected", "VerifyMatchedFinger") and self.op == "verify":
+            # VerifyFingerSelected names the finger only when fprintd verifies
+            # a single one; with several prints on an identify reader it says
+            # "any". VerifyMatchedFinger, from a patched fprintd, comes right
+            # before verify-match and names the finger that matched.
             self.matched = args[0]
         elif name == "VerifyStatus" and self.op == "verify":
             result, done = args

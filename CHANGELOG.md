@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- The test names the recognized finger with several fingers enrolled, on an
+  fprintd that emits `VerifyMatchedFinger` right before `verify-match`. Stock
+  fprintd only names it when a single finger is enrolled, and the test then
+  says just that a print was recognized, as before.
+
 ## 0.2.0 (2026-10-27)
 
 - The plugin lives at the repository root, so `omarchy plugin add
