@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Copies the strings this panel shares with Omarchy's fingerprint panel.
+
+The registration lines (touch, touch again, the retry hints, the failures,
+"Fingerprint registered") are Omarchy's own, worded and translated as its
+omarchy.fingerprint panel has them, so the two panels read alike. This takes
+them from the installed Omarchy's catalogs (default/i18n/<lang>/shell.json,
+Omarchy 4.6 or later) into i18n/<lang>.json, keeping every other string and
+the English catalog's key order.
+
+Usage: dev/sync-upstream-strings [omarchy-path]   (default: $OMARCHY_PATH,
+       else /usr/share/omarchy)
+"""
+
+import json
+import os
+import sys
+
+UPSTREAM_KEYS = (
+    "fingerprint.preparing",
+    "fingerprint.failNoReader",
+    "fingerprint.touch",
+    "fingerprint.swipe",
+    "fingerprint.touchAgain",
+    "fingerprint.swipeAgain",
+    "fingerprint.retryAgain",
+    "fingerprint.retryShort",
+    "fingerprint.retryCenter",
+    "fingerprint.retryLift",
+    "fingerprint.retryFast",
+    "fingerprint.done",
+    "fingerprint.failDuplicate",
+    "fingerprint.failFull",
+    "fingerprint.failDisconnected",
+    "fingerprint.failEnroll",
+)
+
+
+def load(path):
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def main():
+    omarchy = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("OMARCHY_PATH", "/usr/share/omarchy")
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "i18n")
+    order = list(load(os.path.join(here, "en.json")))
+    missing = [key for key in UPSTREAM_KEYS if key not in order]
+    if missing:
+        sys.exit(f"i18n/en.json lacks {', '.join(missing)}")
+    status = 0
+    for name in sorted(os.listdir(here)):
+        if not name.endswith(".json"):
+            continue
+        language = name[:-len(".json")]
+        source = os.path.join(omarchy, "default", "i18n", language, "shell.json")
+        try:
+            upstream = load(source)
+        except FileNotFoundError:
+            print(f"{language}: no {source}; left as it is", file=sys.stderr)
+            status = 1
+            continue
+        catalog = load(os.path.join(here, name))
+        for key in UPSTREAM_KEYS:
+            if key in upstream:
+                catalog[key] = upstream[key]
+            else:
+                print(f"{language}: Omarchy has no {key}; left as it is", file=sys.stderr)
+                status = 1
+        ordered = {key: catalog[key] for key in order if key in catalog}
+        with open(os.path.join(here, name), "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(ordered, indent=2, ensure_ascii=False) + "\n")
+    return status
+
+
+if __name__ == "__main__":
+    sys.exit(main())

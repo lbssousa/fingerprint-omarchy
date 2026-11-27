@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- **Looks like Omarchy's own fingerprint panel** (`omarchy.fingerprint`,
+  Omarchy 4.6): full screen, the big print on a dark scrim with one status
+  line, arriving as a scratchy transmission and lighting up along its ridges
+  with every scan accepted; after an enrollment it breaks up and comes back on
+  the fingers. The cards, the square progress frame and the test area are
+  gone: the six fingers sit under the print, and the print itself is the test.
+  It keeps to what Omarchy's panel doesn't do: choosing the finger, testing,
+  deleting.
+- The lines the two panels share (touch, lift and touch again, the retry
+  hints, the failures, "Fingerprint registered") are Omarchy's, with its
+  translations; `dev/sync-upstream-strings` copies them from an installed
+  Omarchy. The panel's own lines use Omarchy's word for it too: a finger is
+  registered, not enrolled ("Registered", "Enter registers"), in English,
+  Filipino, Hindi, Portuguese (Brazil), Slovenian, Urdu, Uzbek and Chinese;
+  Tamil follows Omarchy's spacing.
+- The PAM hint names Omarchy's `omarchy-setup-security-fingerprint` again;
+  every catalog still named omarchy-multiuser's.
+- `omarchy-fingerprint`, with the plugin off, runs Omarchy 4.6's setup
+  directly (it opens its panel) instead of in a terminal.
+
 ## 0.3.0 (2026-11-12)
 
 - The test names the recognized finger with several fingers enrolled, on an

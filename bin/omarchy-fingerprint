@@ -2,8 +2,10 @@
 
 # omarchy:summary=Enroll, test and delete your fingerprints
 #
-# Opens the lbssousa.fingerprint overlay in the running omarchy-shell. Falls
-# back to the terminal enrollment when the shell or the plugin isn't there.
+# Opens the lbssousa.fingerprint panel in the running omarchy-shell. Falls
+# back to Omarchy's own fingerprint setup when the shell or the plugin isn't
+# there: from Omarchy 4.6 that summons its full-screen panel itself (or opens
+# a terminal when it can't), before it ran in a terminal only.
 
 set -euo pipefail
 
@@ -14,4 +16,10 @@ fi
 echo "The fingerprint plugin isn't enabled in the shell; enable it with:" >&2
 echo "  omarchy-shell shell rescanPlugins" >&2
 echo "  omarchy-shell shell enablePlugin lbssousa.fingerprint '{}'" >&2
+
+setup=$(command -v omarchy-setup-security-fingerprint)
+# Omarchy 4.6 added --terminal to it, with the panel as its default.
+if grep -q '^# omarchy:args=.*--terminal' "$setup"; then
+  exec "$setup"
+fi
 exec omarchy-launch-floating-terminal-with-presentation omarchy-setup-security-fingerprint
