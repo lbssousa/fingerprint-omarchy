@@ -55,6 +55,11 @@ link:
     omarchy-shell shell enablePlugin lbssousa.fingerprint '{}'
     omarchy-restart-shell
 
+# Omarchy's wording and translations for the lines both panels share, from
+# the installed Omarchy (4.6 or later): dev/sync-upstream-strings.
+sync-strings:
+    dev/sync-upstream-strings
+
 # Build the Arch package into packaging/.
 pkg:
     cd packaging && makepkg -f

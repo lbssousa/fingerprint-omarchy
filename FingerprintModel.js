@@ -1,9 +1,9 @@
-// Pure helpers for the fingerprint overlay, kept out of QML so node can test
+// Pure helpers for the fingerprint panel, kept out of QML so node can test
 // them (tests/js/).
 
-// The six fingers offered, as fprintd names them. The grid shows the left
-// hand in the first column and the right hand in the second, thumb to
-// middle finger from the top; digits 1-6 pick them in this order.
+// The six fingers offered, as fprintd names them. The chooser shows the left
+// hand in the first column and the right hand in the second, thumb to middle
+// finger from the top; digits 1-6 pick them in this order.
 var FINGERS = [
   { id: "left-thumb", hand: "left", kind: "thumb" },
   { id: "left-index-finger", hand: "left", kind: "index" },
@@ -13,7 +13,7 @@ var FINGERS = [
   { id: "right-middle-finger", hand: "right", kind: "middle" }
 ]
 var ROWS = 3
-// The cursor's stop after the grid: the verification area.
+// The cursor's stop for the print itself, above the chooser: testing.
 var VERIFY_INDEX = FINGERS.length
 
 function column(index) {
@@ -30,29 +30,30 @@ function fingerIndex(id) {
 }
 
 // Where an arrow key takes the cursor. direction is "left", "right", "up" or
-// "down" (already mirrored for right-to-left reading); lastColumn is the grid
-// column to come back to from the verification area.
+// "down" (already mirrored for right-to-left reading); lastColumn is the
+// chooser column to come back to from the print.
 function move(index, direction, lastColumn) {
   if (index === VERIFY_INDEX) {
-    if (direction === "up") return (lastColumn === 1 ? ROWS : 0) + ROWS - 1
+    if (direction === "down") return (lastColumn === 1 ? ROWS : 0)
     return index
   }
   var c = column(index)
   var r = row(index)
   if (direction === "left") c = 0
   else if (direction === "right") c = 1
-  else if (direction === "up") r = Math.max(0, r - 1)
-  else if (direction === "down") {
-    if (r === ROWS - 1) return VERIFY_INDEX
-    r += 1
-  }
+  else if (direction === "up") {
+    if (r === 0) return VERIFY_INDEX
+    r -= 1
+  } else if (direction === "down") r = Math.min(ROWS - 1, r + 1)
   return c * ROWS + r
 }
 
-// Tab order: the six fingers, then the verification area, then around.
+// Tab order: the print, then the six fingers, then around.
 function step(index, delta) {
-  var stops = FINGERS.length + 1
-  return ((index + delta) % stops + stops) % stops
+  var order = [VERIFY_INDEX, 0, 1, 2, 3, 4, 5]
+  var at = order.indexOf(index)
+  if (at < 0) at = 0
+  return order[((at + delta) % order.length + order.length) % order.length]
 }
 
 // Digits 1-6 jump straight to a finger.
@@ -62,52 +63,74 @@ function shortcutIndex(text) {
   return digit.charCodeAt(0) - "1".charCodeAt(0)
 }
 
-function scanPromptKey(scanType) {
-  return scanType === "swipe" ? "fingerprint.swipe" : "fingerprint.touch"
+// fprintd's scan feedback, shared by enroll and verify ("enroll-retry-scan",
+// "verify-swipe-too-short"), as the hint Omarchy's fingerprint panel names it,
+// or "" for a result that isn't a retry.
+var HINTS = {
+  "retry-scan": "again",
+  "swipe-too-short": "short",
+  "finger-not-centered": "center",
+  "remove-and-retry": "lift",
+  "too-fast": "fast"
 }
 
-// fprintd's scan feedback shared by enroll and verify ("enroll-retry-scan",
-// "verify-retry-scan"), keyed by the part after the prefix.
-var SCAN_FEEDBACK = {
-  "retry-scan": "fingerprint.retryScan",
-  "swipe-too-short": "fingerprint.swipeTooShort",
-  "finger-not-centered": "fingerprint.notCentered",
-  "remove-and-retry": "fingerprint.removeAndRetry",
-  "disconnected": "fingerprint.disconnected"
+function scanHint(result) {
+  var text = String(result || "")
+  var dash = text.indexOf("-")
+  return dash > 0 ? HINTS[text.slice(dash + 1)] || "" : ""
 }
 
-function feedbackKey(result, prefix) {
-  var suffix = String(result || "").indexOf(prefix) === 0 ? result.slice(prefix.length) : ""
-  return SCAN_FEEDBACK[suffix] || ""
+var HINT_KEYS = {
+  again: "fingerprint.retryAgain",
+  short: "fingerprint.retryShort",
+  center: "fingerprint.retryCenter",
+  lift: "fingerprint.retryLift",
+  fast: "fingerprint.retryFast"
 }
 
-// The status line for an enroll event, and how it reads: "info" while
-// scanning, "success" once enrolled, "error" when the enrollment ended
-// without a print.
-function enrollStatus(result, scanType) {
+function hintKey(hint) {
+  return HINT_KEYS[hint] || ""
+}
+
+// How an enrollment that ended without a print failed, as Omarchy's panel
+// names it: "duplicate", "full", "disconnected" or "enroll".
+function enrollFailure(result) {
   switch (result) {
-  case "enroll-started": return { key: scanPromptKey(scanType), tone: "info" }
-  case "enroll-stage-passed": return { key: "fingerprint.stagePassed", tone: "info" }
-  case "enroll-completed": return { key: "fingerprint.enroll.completed", tone: "success" }
-  case "enroll-duplicate": return { key: "fingerprint.enroll.duplicate", tone: "error" }
-  case "enroll-data-full": return { key: "fingerprint.enroll.dataFull", tone: "error" }
-  case "enroll-disconnected": return { key: "fingerprint.disconnected", tone: "error" }
+  case "enroll-duplicate": return "duplicate"
+  case "enroll-data-full": return "full"
+  case "enroll-disconnected": return "disconnected"
   }
-  var feedback = feedbackKey(result, "enroll-")
-  if (feedback) return { key: feedback, tone: "info" }
-  return { key: "fingerprint.enroll.failed", tone: "error" }
+  return "enroll"
 }
 
-function verifyStatus(result, scanType) {
-  switch (result) {
-  case "verify-started": return { key: scanPromptKey(scanType), tone: "info" }
-  case "verify-match": return { key: "fingerprint.verify.match", tone: "success" }
-  case "verify-no-match": return { key: "fingerprint.verify.noMatch", tone: "error" }
-  case "verify-disconnected": return { key: "fingerprint.disconnected", tone: "error" }
-  }
-  var feedback = feedbackKey(result, "verify-")
-  if (feedback) return { key: feedback, tone: "info" }
-  return { key: "fingerprint.verify.failed", tone: "error" }
+var FAILURE_KEYS = {
+  duplicate: "fingerprint.failDuplicate",
+  full: "fingerprint.failFull",
+  disconnected: "fingerprint.failDisconnected",
+  enroll: "fingerprint.failEnroll"
+}
+
+// A helper error code (see fprint-helper) reads as itself; an enrollment
+// failure as Omarchy's panel words it.
+function failureKey(code) {
+  return FAILURE_KEYS[code] || errorKey(code)
+}
+
+// The status line while scanning: the reader's last complaint, or what to do
+// next ("Touch the sensor", then "Lift and touch again").
+function scanKey(scanType, stage, hint) {
+  if (hintKey(hint) !== "") return hintKey(hint)
+  var swipe = scanType === "swipe"
+  if (stage > 0) return swipe ? "fingerprint.swipeAgain" : "fingerprint.touchAgain"
+  return swipe ? "fingerprint.swipe" : "fingerprint.touch"
+}
+
+// A finished test: "match", "no-match" or "failed" (timed out, disconnected,
+// or a result fprintd ended it on that isn't a verdict).
+function verifyOutcome(result) {
+  if (result === "verify-match") return "match"
+  if (result === "verify-no-match") return "no-match"
+  return "failed"
 }
 
 var ERROR_KEYS = {
@@ -123,77 +146,13 @@ function errorKey(code) {
   return ERROR_KEYS[code] || "fingerprint.error.generic"
 }
 
-// How much of the square to draw: 0-1, or -1 when the driver gives no stage
-// count (the frame then spins instead).
+// The share of the print to light, 0 to 1, as Omarchy's panel lights it:
+// every accepted touch lights the same length of ridge, short of full until
+// the reader says the print is in; with no stage count, it closes in on full.
 function progress(stage, total, completed) {
   if (completed) return 1
-  if (!(total > 0)) return -1
-  return Math.max(0, Math.min(1, stage / total))
-}
-
-// The rounded square around the fingerprint, as drawing steps for a Canvas
-// path. It starts at the top centre and runs clockwise (screen coordinates,
-// y down): half the top edge, a corner, the right edge, ... back to the top
-// centre. pathOps(x, y, side, radius, from, to) returns the stretch between
-// the fractions from and to (0 <= from <= to <= 1) of the perimeter as a
-// start point plus "line" and "arc" steps:
-//   { start: {x, y}, ops: [{type: "line", x, y} |
-//                          {type: "arc", cx, cy, r, a0, a1}] }
-function squareSegments(x, y, side, radius) {
-  var r = Math.max(0, Math.min(radius, side / 2))
-  var straight = side - 2 * r
-  var quarter = Math.PI * r / 2
-  var half = Math.PI / 2
-  return [
-    { type: "line", length: straight / 2, x0: x + side / 2, y0: y, x1: x + side - r, y1: y },
-    { type: "arc", length: quarter, cx: x + side - r, cy: y + r, r: r, a0: -half, a1: 0 },
-    { type: "line", length: straight, x0: x + side, y0: y + r, x1: x + side, y1: y + side - r },
-    { type: "arc", length: quarter, cx: x + side - r, cy: y + side - r, r: r, a0: 0, a1: half },
-    { type: "line", length: straight, x0: x + side - r, y0: y + side, x1: x + r, y1: y + side },
-    { type: "arc", length: quarter, cx: x + r, cy: y + side - r, r: r, a0: half, a1: Math.PI },
-    { type: "line", length: straight, x0: x, y0: y + side - r, x1: x, y1: y + r },
-    { type: "arc", length: quarter, cx: x + r, cy: y + r, r: r, a0: Math.PI, a1: Math.PI + half },
-    { type: "line", length: straight / 2, x0: x + r, y0: y, x1: x + side / 2, y1: y }
-  ]
-}
-
-function perimeter(side, radius) {
-  var r = Math.max(0, Math.min(radius, side / 2))
-  return 4 * (side - 2 * r) + 2 * Math.PI * r
-}
-
-function pointAt(segment, t) {
-  if (segment.type === "line")
-    return { x: segment.x0 + (segment.x1 - segment.x0) * t, y: segment.y0 + (segment.y1 - segment.y0) * t }
-  var a = segment.a0 + (segment.a1 - segment.a0) * t
-  return { x: segment.cx + segment.r * Math.cos(a), y: segment.cy + segment.r * Math.sin(a) }
-}
-
-function pathOps(x, y, side, radius, from, to) {
-  var segments = squareSegments(x, y, side, radius)
-  var total = perimeter(side, radius)
-  var startLen = Math.max(0, Math.min(1, from)) * total
-  var endLen = Math.max(0, Math.min(1, to)) * total
-  var out = { start: null, ops: [] }
-  var walked = 0
-  for (var i = 0; i < segments.length; i++) {
-    var s = segments[i]
-    var segStart = walked
-    var segEnd = walked + s.length
-    walked = segEnd
-    if (s.length <= 0 || segEnd <= startLen || segStart >= endLen) continue
-    var t0 = (Math.max(startLen, segStart) - segStart) / s.length
-    var t1 = (Math.min(endLen, segEnd) - segStart) / s.length
-    if (!out.start) out.start = pointAt(s, t0)
-    if (s.type === "line") {
-      var p = pointAt(s, t1)
-      out.ops.push({ type: "line", x: p.x, y: p.y })
-    } else {
-      out.ops.push({ type: "arc", cx: s.cx, cy: s.cy, r: s.r,
-                     a0: s.a0 + (s.a1 - s.a0) * t0, a1: s.a0 + (s.a1 - s.a0) * t1 })
-    }
-  }
-  return out
+  if (!(total > 0)) return 1 - Math.pow(0.85, Math.max(0, stage))
+  return Math.max(0, Math.min(0.96, stage / total))
 }
 
 if (typeof module !== "undefined") {
@@ -206,11 +165,13 @@ if (typeof module !== "undefined") {
     move: move,
     step: step,
     shortcutIndex: shortcutIndex,
-    enrollStatus: enrollStatus,
-    verifyStatus: verifyStatus,
+    scanHint: scanHint,
+    hintKey: hintKey,
+    enrollFailure: enrollFailure,
+    failureKey: failureKey,
+    scanKey: scanKey,
+    verifyOutcome: verifyOutcome,
     errorKey: errorKey,
-    progress: progress,
-    perimeter: perimeter,
-    pathOps: pathOps
+    progress: progress
   }
 }

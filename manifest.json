@@ -5,7 +5,7 @@
   "version": "0.3.0",
   "author": "Laércio de Sousa",
   "license": "MIT",
-  "description": "Enroll, test and delete your fingerprints (fprintd) from a keyboard-friendly overlay styled like the polkit agent.",
+  "description": "Enroll, test and delete your fingerprints (fprintd) from a full-screen panel that looks like Omarchy's own fingerprint setup.",
   "homepage": "https://github.com/lbssousa/fingerprint-omarchy",
   "repository": "https://github.com/lbssousa/fingerprint-omarchy",
   "keywords": [
