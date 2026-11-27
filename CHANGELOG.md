@@ -13,7 +13,10 @@
 - The lines the two panels share (touch, lift and touch again, the retry
   hints, the failures, "Fingerprint registered") are Omarchy's, with its
   translations; `dev/sync-upstream-strings` copies them from an installed
-  Omarchy.
+  Omarchy. The panel's own lines use Omarchy's word for it too: a finger is
+  registered, not enrolled ("Registered", "Enter registers"), in English,
+  Filipino, Hindi, Portuguese (Brazil), Slovenian, Urdu, Uzbek and Chinese;
+  Tamil follows Omarchy's spacing.
 - The PAM hint names Omarchy's `omarchy-setup-security-fingerprint` again;
   every catalog still named omarchy-multiuser's.
 - `omarchy-fingerprint`, with the plugin off, runs Omarchy 4.6's setup
